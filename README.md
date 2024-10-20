@@ -80,23 +80,6 @@ We faced an issue with the application not having permission to access the FLIR 
    ```bash
    sudo udevadm trigger /dev/bus/usb/*
    ```
-We faced an issue with the application not having permission to access the FLIR Boson USB device. To resolve this, we updated udev rules:
-
-1. **Create a Udev Rule for the FLIR Device**:
-   ```bash
-   sudo nano /etc/udev/rules.d/99-flir-boson.rules
-   ```
-
-2. **Add the Following Line** (to grant access to the USB device):
-   ```bash
-   SUBSYSTEM=="usb", ATTRS{idVendor}=="09cb", ATTRS{idProduct}=="4007", MODE="0666"
-   ```
-
-3. **Reload Udev Rules**:
-   ```bash
-   sudo udevadm control --reload-rules
-   sudo udevadm trigger
-   ```
 
 ## Notes
 - Ensure that your system has access to the appropriate video devices, and that you have permissions to access them.
