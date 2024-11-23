@@ -38,7 +38,7 @@ The script can be run from the command line and provides various command line op
 
 ### Example Usage
 ```sh
-python boson_lut_script.py REDHOT --camera_type BOSON
+python boson_lut.py REDHOT --camera_type BOSON
 ```
 This command runs the script, applies the `REDHOT` LUT, and uses the `BOSON` camera type.
 
