@@ -9,13 +9,14 @@ import os
 import pyudev
 import threading
 import time
+import ast
 
 # --- Constants ---
 
 LUTS = {
     'WHITEHOT': cv2.COLORMAP_BONE,
     'BLACKHOT': cv2.COLORMAP_JET,
-    'REDHOT': cv2.COLORMAP_HOT,
+    'WHITEHOT': cv2.COLORMAP_HOT,
     'RAINBOW': cv2.COLORMAP_RAINBOW,
     'OCEAN': cv2.COLORMAP_OCEAN,
     'LAVA': cv2.COLORMAP_PINK,
@@ -42,11 +43,14 @@ LUTS = {
 CAMERA_RESOLUTIONS = {
     'BOSON': (640, 512),
     'LEPTON3': (160, 120),
-    'LEPTON2': (80, 60)
+    'LEPTON2': (80, 60),
+    'AMPBANK': (256, 192)
 }
 
 FLIR_VENDOR_ID = '09cb'  # FLIR vendor ID
 LEPTON_PRODUCT_ID = '0100'  # FLIR Lepton (Cubeternet WebCam) product ID
+AMPBANK_VENDOR_ID = '3474'  # Ampbank vendor ID
+AMPBANK_PRODUCT_ID = '4321'  # Ampbank product ID
 
 # --- Thread Locks ---
 cap_lock = threading.Lock()
@@ -54,6 +58,31 @@ out_lock = threading.Lock()
 recording_lock = threading.Lock()
 
 # --- Helper Functions ---
+
+def load_custom_luts():
+    """Scans the current working directory for .lut files and loads them into the LUTS dictionary."""
+    for filename in os.listdir('.'): 
+        if filename.endswith('.lut'):
+            try:
+                with open(filename, 'r') as f:
+                    # Expect the file to contain only a list of tuples
+                    lut_data = f.read().strip()
+                    if lut_data.startswith('[') and lut_data.endswith(']'):
+                        lut_values = ast.literal_eval(lut_data)
+                        if isinstance(lut_values, list) and all(isinstance(color, tuple) and len(color) == 3 for color in lut_values):
+                            lut_name = os.path.splitext(filename)[0]
+                            lut_array = np.array(lut_values, dtype=np.uint8).reshape((256, 1, 3))
+                            LUTS[lut_name] = lut_array
+                            print(f"Loaded custom LUT: {lut_name}")
+                        else:
+                            print(f"Invalid format in LUT file: {filename}. Expected a list of 3-tuple colors.")
+                    else:
+                        print(f"Invalid format in LUT file: {filename}. File must contain a list of color tuples.")
+            except (SyntaxError, ValueError) as e:
+                print(f"Error loading LUT file {filename}: {e}")
+            except Exception as e:
+                print(f"Unexpected error loading LUT file {filename}: {e}")
+
 
 def get_video_devices_for_flir():
     """Detects available FLIR cameras using pyudev."""
@@ -73,6 +102,9 @@ def get_video_devices_for_flir():
         elif vendor_id == '1e4e' and product_id == LEPTON_PRODUCT_ID:
             print(
                 f"Found FLIR Lepton camera (Cubeternet WebCam): {model}, Device: {device.device_node}")
+            flir_devices.append(device.device_node)
+        elif vendor_id == AMPBANK_VENDOR_ID and product_id == AMPBANK_PRODUCT_ID:
+            print(f"Found Ampbank camera: {model}, Device: {device.device_node}")
             flir_devices.append(device.device_node)
 
     if not flir_devices:
@@ -127,7 +159,7 @@ def apply_lut(frame, lut_name):
 
 def capture_and_process_video(cap, lut_var, recording_var, out_var, frame_width, frame_height, video_label, record_button, flip_horizontal_var, flip_vertical_var, exit_event):
     """Captures video frames, applies the LUT, and handles recording and screenshots."""
-    global screenshot_requested 
+    global screenshot_requested
     last_frame = None
     imgtk = ImageTk.PhotoImage(image=Image.new('RGB', (frame_width, frame_height)))  # Create PhotoImage outside the loop
     video_label.configure(image=imgtk)
@@ -239,8 +271,11 @@ def main(lut_name, camera_type='BOSON'):
     """Main function that sets up the application."""
     global exit_event
     exit_event = threading.Event()
-    global screenshot_requested 
+    global screenshot_requested
     screenshot_requested = False
+
+    # Load custom LUTs from the current directory
+    load_custom_luts()
 
     available_cameras = get_video_devices_for_flir()
     if not available_cameras:
@@ -328,15 +363,15 @@ def main(lut_name, camera_type='BOSON'):
     lut_var = StringVar(root)
     lut_var.set(lut_name)
     if lut_name not in LUTS:
-        print(f"Error: Unsupported LUT '{lut_name}'. Defaulting to 'REDHOT'.")
-        lut_var.set('REDHOT')
+        print(f"Error: Unsupported LUT '{lut_name}'. Defaulting to 'WHITEHOT'.")
+        lut_var.set('WHITEHOT')
     lut_menu = OptionMenu(control_frame, lut_var, *sorted(LUTS.keys()))
     lut_menu.pack(side="left", padx=5)
 
     # Exit button
     Button(control_frame, text="Exit Program", command=lambda: exit_program(cap, out_var)).pack(side="left", padx=5)
 
-    
+
     # Video frame label
     video_label = Label(root)
     video_label.pack()
@@ -344,7 +379,7 @@ def main(lut_name, camera_type='BOSON'):
     # Start the video capture and processing in a separate thread
     def update_video_frame():
         global exit_event
-        
+
         capture_thread = threading.Thread(target=capture_and_process_video, args=(
             cap, lut_var, recording_var, out_var, frame_width, frame_height, video_label, record_button, flip_horizontal_var, flip_vertical_var, exit_event))
         capture_thread.daemon = True
@@ -366,13 +401,14 @@ def main(lut_name, camera_type='BOSON'):
 # --- Argparse Setup ---
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Apply a false-color LUT to a video stream from a thermal camera.")
-    parser.add_argument('lut_name', type=str, nargs='?', default='REDHOT',
+    parser.add_argument('lut_name', type=str, nargs='?', default='WHITEHOT',
                         choices=sorted(LUTS.keys()),  # Access LUTS here
                         help="Name of the LUT to apply. Available options: " +
-                             ", ".join(sorted(LUTS.keys())) + ". Default is 'REDHOT'.")
+                             ", ".join(sorted(LUTS.keys())) + ". Default is 'WHITEHOT'.")
     parser.add_argument('--camera_type', type=str, default='BOSON',
-                        choices=['BOSON', 'LEPTON3', 'LEPTON2'],
-                        help="Type of camera being used ('BOSON', 'LEPTON3', 'LEPTON2'). Default is 'BOSON'.")
+                        choices=['BOSON', 'LEPTON3', 'LEPTON2', 'AMPBANK'],
+                        help="Type of camera being used ('BOSON', 'LEPTON3', 'LEPTON2', 'AMPBANK'). Default is 'BOSON'.")
 
     args = parser.parse_args()
     main(args.lut_name, args.camera_type)
+
